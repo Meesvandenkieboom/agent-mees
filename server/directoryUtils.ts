@@ -23,11 +23,80 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 /**
+ * Detect if running in WSL (Windows Subsystem for Linux)
+ */
+function isWSL(): boolean {
+  try {
+    // Check if /proc/version contains "microsoft" or "WSL"
+    if (fs.existsSync('/proc/version')) {
+      const version = fs.readFileSync('/proc/version', 'utf8').toLowerCase();
+      return version.includes('microsoft') || version.includes('wsl');
+    }
+  } catch {
+    // Ignore errors
+  }
+  return false;
+}
+
+/**
+ * Get Windows username from WSL environment
+ */
+function getWindowsUsername(): string | null {
+  try {
+    // Try to get Windows username from environment or /mnt/c path
+    const wslEnvUser = process.env.WSL_DISTRO_NAME ? process.env.USER : null;
+
+    // Try to read from /mnt/c/Users directory
+    if (fs.existsSync('/mnt/c/Users')) {
+      const users = fs.readdirSync('/mnt/c/Users');
+      // Filter out system folders
+      const realUsers = users.filter(u =>
+        !['Public', 'Default', 'Default User', 'All Users'].includes(u) &&
+        !u.startsWith('.')
+      );
+
+      // If there's only one user, use that
+      if (realUsers.length === 1) {
+        return realUsers[0];
+      }
+
+      // Try to match WSL username
+      if (wslEnvUser && realUsers.includes(wslEnvUser)) {
+        return wslEnvUser;
+      }
+
+      // Check current path for username hint
+      const cwd = process.cwd();
+      if (cwd.startsWith('/mnt/c/Users/')) {
+        const username = cwd.split('/')[4];
+        if (realUsers.includes(username)) {
+          return username;
+        }
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null;
+}
+
+/**
  * Get the default working directory for agent operations
  * Cross-platform: ~/Documents/agent-girl (Mac/Linux) or C:\Users\{user}\Documents\agent-girl (Windows)
+ * WSL: Uses Windows path (/mnt/c/Users/{user}/Documents/agent-girl)
  */
 export function getDefaultWorkingDirectory(): string {
-  const homeDir = os.homedir();
+  let homeDir = os.homedir();
+
+  // If running in WSL, use Windows home directory instead
+  if (isWSL()) {
+    const windowsUser = getWindowsUsername();
+    if (windowsUser) {
+      homeDir = `/mnt/c/Users/${windowsUser}`;
+      console.log('🪟 WSL detected, using Windows home:', homeDir);
+    }
+  }
+
   const defaultDir = path.join(homeDir, 'Documents', 'agent-girl');
 
   // Startup logs are now consolidated in server.ts

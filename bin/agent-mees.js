@@ -21,7 +21,7 @@ const projectRoot = join(__dirname, '..');
 // Check if bun is available
 const bunAvailable = (() => {
   try {
-    const result = spawn('bun', ['--version'], { stdio: 'ignore' });
+    spawn('bun', ['--version'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
