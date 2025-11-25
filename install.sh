@@ -18,6 +18,7 @@ NC='\033[0m' # No Color
 # Configuration
 REPO="Meesvandenkieboom/agent-mees"
 APP_NAME="agent-mees"
+BRANCH="main"
 MIN_DISK_SPACE_MB=200
 GITHUB_REPO_URL="https://github.com/${REPO}.git"
 
