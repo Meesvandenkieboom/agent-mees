@@ -9,7 +9,16 @@
       "Bash(npx eslint:*)",
       "Bash(bash -n:*)",
       "Bash(npm run build:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(export PATH=\"$HOME/.bun/bin:$PATH\")",
+      "Bash(bunx eslint:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(bun run dev)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []

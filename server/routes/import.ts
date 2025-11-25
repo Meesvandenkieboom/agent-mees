@@ -172,10 +172,12 @@ export async function handleImportRoutes(
         // macOS - AppleScript to allow multiple file/folder selection
         command = `osascript -e 'tell application "System Events" to activate' -e 'tell application "System Events" to set thePaths to choose file with prompt "Select files or folders to import" with multiple selections allowed' -e 'set text item delimiters to linefeed' -e 'thePaths as text'`;
       } else if (isWSL || process.platform === 'win32') {
-        // WSL or Windows - use PowerShell.exe (Windows PowerShell from WSL)
+        // WSL or Windows - use PowerShell with folder browser dialog
         isWindowsDialog = true;
         const powershellCmd = isWSL ? 'powershell.exe' : 'powershell';
-        command = `${powershellCmd} -Command "Add-Type -AssemblyName System.Windows.Forms; $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog; $openFileDialog.Multiselect = \\$true; $openFileDialog.Title = 'Select files or folders to import'; if ($openFileDialog.ShowDialog() -eq 'OK') { $openFileDialog.FileNames | ForEach-Object { Write-Output \\$_ } }"`;
+
+        // Use FolderBrowserDialog which allows selecting folders, and we'll add file selection as an option
+        command = `${powershellCmd} -NoProfile -Command "$paths = @(); Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select a folder to import (or Cancel and use file picker)'; $dialog.ShowNewFolderButton = $false; if ($dialog.ShowDialog() -eq 'OK') { $paths += $dialog.SelectedPath } else { $fileDialog = New-Object System.Windows.Forms.OpenFileDialog; $fileDialog.Multiselect = $true; $fileDialog.Title = 'Select files to import'; if ($fileDialog.ShowDialog() -eq 'OK') { $paths += $fileDialog.FileNames } } $paths | ForEach-Object { Write-Output $_ }"`;
       } else {
         // Linux (non-WSL) - zenity for file selection
         command = `zenity --file-selection --multiple --separator="\n" --title="Select files or folders to import"`;
