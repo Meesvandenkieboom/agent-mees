@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, FolderInput } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface Chat {
@@ -38,9 +38,10 @@ interface SidebarProps {
   onChatSelect?: (chatId: string) => void;
   onChatDelete?: (chatId: string) => void;
   onChatRename?: (chatId: string, newTitle: string) => void;
+  currentSessionId?: string | null;
 }
 
-export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename }: SidebarProps) {
+export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect, onChatDelete, onChatRename, currentSessionId }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAllChatsExpanded, setIsAllChatsExpanded] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -172,13 +173,80 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
     }
   };
 
+  const handleImportFiles = async () => {
+    // Check if a session is active
+    if (!currentSessionId) {
+      toast.error('No active session', {
+        description: 'Please create or select a chat first'
+      });
+      return;
+    }
+
+    try {
+      // Step 1: Open file/folder picker
+      const pickerResponse = await fetch('/api/pick-import-items', {
+        method: 'POST',
+      });
+
+      const pickerData = await pickerResponse.json();
+
+      if (!pickerData.success) {
+        if (pickerData.cancelled) {
+          // User cancelled - no need to show error
+          return;
+        }
+        toast.error('Failed to select files', {
+          description: pickerData.error || 'Unknown error'
+        });
+        return;
+      }
+
+      if (!pickerData.paths || pickerData.paths.length === 0) {
+        toast.info('No files selected');
+        return;
+      }
+
+      // Step 2: Import selected files/folders
+      const importResponse = await fetch(`/api/sessions/${currentSessionId}/import`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          paths: pickerData.paths
+        }),
+      });
+
+      const importData = await importResponse.json();
+
+      if (importData.success) {
+        const folderName = importData.importFolder;
+        const itemsList = importData.copiedItems?.slice(0, 3).join(', ') || '';
+        const moreItems = importData.copiedCount > 3 ? ` and ${importData.copiedCount - 3} more` : '';
+
+        toast.success('Files imported successfully', {
+          description: `${importData.copiedCount} item(s) copied to folder: ${folderName}\n\nFiles: ${itemsList}${moreItems}\n\nTell the agent: "Check the ${folderName} folder"`,
+          duration: 8000,
+        });
+      } else {
+        toast.error('Failed to import files', {
+          description: importData.error || 'Unknown error'
+        });
+      }
+    } catch (error) {
+      toast.error('Failed to import files', {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
+
   return (
     <div className={`sidebar ${isOpen ? 'sidebar-open' : 'sidebar-closed'}`}>
       <div className="sidebar-container">
         {/* Header */}
         <div className="sidebar-header">
           <div className="sidebar-logo">
-            <img src="/client/agent-boy.svg" alt="Agent Girl" className="sidebar-logo-icon" />
+            <img src="/client/agent-boy.svg" alt="Agent Mees" className="sidebar-logo-icon" />
           </div>
           <button className="sidebar-toggle-btn" onClick={onToggle} aria-label="Toggle Sidebar">
             <Menu size={24} opacity={0.8} className={isOpen ? '' : 'rotate-180'} />
@@ -195,6 +263,12 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         <button className="sidebar-new-chat-btn" onClick={handleOpenChatFolder} style={{ marginTop: '0.5rem' }}>
           <FolderOpen size={20} opacity={0.8} />
           <span>Open Chat Folder</span>
+        </button>
+
+        {/* Import Files Button */}
+        <button className="sidebar-new-chat-btn" onClick={handleImportFiles} style={{ marginTop: '0.5rem' }}>
+          <FolderInput size={20} opacity={0.8} />
+          <span>Import Files</span>
         </button>
 
         {/* Search */}

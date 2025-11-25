@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bunx tsc:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx --package typescript tsc:*)",
+      "Bash(npm run lint:*)",
+      "Bash(chmod:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

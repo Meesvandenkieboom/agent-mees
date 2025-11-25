@@ -1157,6 +1157,7 @@ export function ChatContainer() {
         onChatSelect={handleSessionSelect}
         onChatDelete={handleChatDelete}
         onChatRename={handleChatRename}
+        currentSessionId={currentSessionId}
       />
 
       {/* Main Chat Area */}
@@ -1190,7 +1191,7 @@ export function ChatContainer() {
                     {!isSidebarOpen && (
                       <img
                         src="/client/agent-boy.svg"
-                        alt="Agent Girl"
+                        alt="Agent Mees"
                         className="header-icon"
                         loading="eager"
                         onError={(e) => {
@@ -1203,7 +1204,7 @@ export function ChatContainer() {
                       />
                     )}
                     <div className="header-title text-gradient">
-                      Agent Girl
+                      Agent Mees
                     </div>
                     {/* Model Selector */}
                     <ModelSelector
