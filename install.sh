@@ -318,7 +318,14 @@ install_bun() {
       export BUN_INSTALL="$HOME/.bun"
       export PATH="$BUN_INSTALL/bin:$PATH"
 
-      log_success "Bun installed successfully"
+      # Verify Bun is now available
+      if command -v bun &> /dev/null; then
+        BUN_VERSION=$(bun --version 2>/dev/null || echo "unknown")
+        log_success "Bun v$BUN_VERSION installed successfully"
+      else
+        fatal_error "Bun was installed but is not available in PATH" \
+          "Try: export PATH=\"\$HOME/.bun/bin:\$PATH\" then run the installer again"
+      fi
     else
       fatal_error "Failed to install Bun" \
         "Install manually: https://bun.sh"
@@ -334,6 +341,14 @@ build_application() {
   log_section "Building Agent Mees"
 
   cd "$CLONE_DIR"
+
+  # Verify Bun is available
+  if ! command -v bun &> /dev/null; then
+    fatal_error "Bun is not available in PATH" \
+      "The installation may have failed. Try: export PATH=\"\$HOME/.bun/bin:\$PATH\""
+  fi
+
+  log_info "Using Bun: $(which bun)"
 
   # Install dependencies
   log_info "Installing dependencies (this may take a minute)..."
@@ -353,19 +368,22 @@ build_application() {
 
   # Build CSS and JS
   log_info "Building application..."
+  log_info "Running: bun run build"
 
-  BUILD_OUTPUT=$(bun run build 2>&1)
-  BUILD_EXIT_CODE=$?
-
-  # Show relevant output
-  echo "$BUILD_OUTPUT" | grep -E "(✓|error|warning|Error|built)" || echo "$BUILD_OUTPUT"
-
-  if [ $BUILD_EXIT_CODE -ne 0 ]; then
-    fatal_error "Build failed" \
-      "Check the error messages above"
+  # Run build and capture all output
+  if BUILD_OUTPUT=$(bun run build 2>&1); then
+    # Build succeeded - show output
+    echo "$BUILD_OUTPUT" | grep -E "(✓|✅|built)" || echo "$BUILD_OUTPUT"
+    log_success "Build completed successfully"
+  else
+    # Build failed - show full output for debugging
+    echo ""
+    log_error "Build command output:"
+    echo "$BUILD_OUTPUT"
+    echo ""
+    fatal_error "Build failed (exit code: $?)" \
+      "Check the error messages above. You can try running 'bun run build' manually in $CLONE_DIR"
   fi
-
-  log_success "Build completed successfully"
 }
 
 # =============================================================================
