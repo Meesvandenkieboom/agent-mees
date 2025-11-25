@@ -290,14 +290,17 @@ clone_repository() {
 
   log_info "Cloning repository..."
   echo -e "   ${BLUE}${GITHUB_REPO_URL}${NC}"
+  echo -e "   ${BLUE}Branch: ${BRANCH}${NC}"
   echo ""
 
-  if ! git clone --depth 1 --branch "$BRANCH" "$GITHUB_REPO_URL" "$CLONE_DIR" 2>&1 | grep -v "^Cloning"; then
+  # Clone with full error output for debugging
+  if git clone --depth 1 --branch "$BRANCH" "$GITHUB_REPO_URL" "$CLONE_DIR" 2>&1; then
+    log_success "Repository cloned successfully"
+  else
+    echo ""
     fatal_error "Failed to clone repository" \
-      "Check your network connection and try again"
+      "Check your network connection and repository access"
   fi
-
-  log_success "Repository cloned successfully"
 }
 
 # =============================================================================

@@ -174,16 +174,8 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   };
 
   const handleImportFiles = async () => {
-    // Check if a session is active
-    if (!currentSessionId) {
-      toast.error('No active session', {
-        description: 'Please create or select a chat first'
-      });
-      return;
-    }
-
     try {
-      // Step 1: Open file/folder picker
+      // Step 1: Open file/folder picker first
       const pickerResponse = await fetch('/api/pick-import-items', {
         method: 'POST',
       });
@@ -206,8 +198,40 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         return;
       }
 
-      // Step 2: Import selected files/folders
-      const importResponse = await fetch(`/api/sessions/${currentSessionId}/import`, {
+      // Step 2: Auto-create new chat if no session is active
+      let sessionId = currentSessionId;
+      if (!sessionId) {
+        toast.info('Creating new chat for imported files...');
+
+        const createResponse = await fetch('/api/sessions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: 'New Chat',
+            mode: 'general'
+          }),
+        });
+
+        if (!createResponse.ok) {
+          toast.error('Failed to create new chat', {
+            description: 'Could not create a chat for your imported files'
+          });
+          return;
+        }
+
+        const newSession = await createResponse.json();
+        sessionId = newSession.id;
+
+        // Trigger chat selection to update UI
+        if (sessionId) {
+          onChatSelect?.(sessionId);
+        }
+      }
+
+      // Step 3: Import selected files/folders
+      const importResponse = await fetch(`/api/sessions/${sessionId}/import`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
