@@ -1,0 +1,387 @@
+/**
+ * Agent Girl - Modern chat interface for Claude Agent SDK
+ * Copyright (C) 2025 KenKai
+ *
+ * SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
+import { ProjectTypeSelector } from './ProjectTypeSelector';
+import { FeatureSelector } from './FeatureSelector';
+import { ConfigurationStep } from './ConfigurationStep';
+import { ReviewStep } from './ReviewStep';
+import { generateBuildPrompt, type ProjectTemplate } from './buildConfig';
+
+type WizardStep = 'project-type' | 'features' | 'configuration' | 'review';
+
+interface BuildWizardProps {
+  onComplete: (prompt: string) => void;
+  onClose: () => void;
+}
+
+export function BuildWizard({ onComplete, onClose }: BuildWizardProps) {
+  const [currentStep, setCurrentStep] = useState<WizardStep>('project-type');
+  const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
+  const [selectedFeatures, setSelectedFeatures] = useState<Set<string>>(new Set());
+  const [configurations, setConfigurations] = useState<Record<string, string | boolean | number>>({});
+  const [projectName, setProjectName] = useState('my-project');
+  const [isTransitioning, setIsTransitioning] = useState(false);
+
+  // Ref for scrollable content container
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to top whenever step changes
+  useEffect(() => {
+    if (contentRef.current) {
+      contentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [currentStep]);
+
+  // Smooth transition helper
+  const transitionToStep = (nextStep: WizardStep) => {
+    setIsTransitioning(true);
+    setTimeout(() => {
+      setCurrentStep(nextStep);
+      setIsTransitioning(false);
+    }, 150);
+  };
+
+  // Step 1: Select project type
+  const handleTemplateSelect = (template: ProjectTemplate) => {
+    setSelectedTemplate(template);
+    setSelectedFeatures(new Set());
+    setConfigurations({});
+
+    // Initialize default configurations
+    const defaults: Record<string, string | boolean | number> = {};
+    template.features.forEach(feature => {
+      feature.configOptions?.forEach(opt => {
+        if (opt.defaultValue !== undefined) {
+          defaults[opt.id] = opt.defaultValue;
+        }
+      });
+    });
+    setConfigurations(defaults);
+
+    transitionToStep('features');
+  };
+
+  // Step 2: Toggle features
+  const handleToggleFeature = (featureId: string) => {
+    setSelectedFeatures(prev => {
+      const next = new Set(prev);
+      if (next.has(featureId)) {
+        next.delete(featureId);
+      } else {
+        next.add(featureId);
+      }
+      return next;
+    });
+  };
+
+  // Step 3: Update configuration
+  const handleUpdateConfig = (key: string, value: string | boolean | number) => {
+    setConfigurations(prev => ({ ...prev, [key]: value }));
+  };
+
+  // Step 4: Start building
+  const handleStartBuilding = () => {
+    if (!selectedTemplate) return;
+
+    const prompt = generateBuildPrompt(
+      selectedTemplate,
+      projectName,
+      selectedFeatures,
+      configurations
+    );
+
+    onComplete(prompt);
+  };
+
+  // Progress indicator
+  const steps = ['project-type', 'features', 'configuration', 'review'];
+  const currentStepIndex = steps.indexOf(currentStep);
+  const progress = ((currentStepIndex + 1) / steps.length) * 100;
+
+  // Render as portal to document.body to escape parent layout constraints
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        backdropFilter: 'blur(8px)',
+      }}
+    >
+      <div
+        style={{
+          position: 'relative',
+          width: '100%',
+          maxWidth: '1152px', // max-w-6xl = 72rem = 1152px
+          height: '90vh',
+          borderRadius: '16px',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          backgroundColor: 'rgb(20, 22, 24)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        }}
+      >
+        {/* Progress Bar */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: '4px',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              width: `${progress}%`,
+              backgroundImage: 'linear-gradient(90deg, #A8C7FA 0%, #DAEEFF 50%, #A8C7FA 100%)',
+              backgroundSize: '200% auto',
+              animation: 'shimmer 3s linear infinite',
+              transition: 'width 500ms ease-out',
+            }}
+          />
+        </div>
+
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
+            padding: '8px',
+            borderRadius: '8px',
+            color: 'white',
+            backgroundColor: 'rgba(255, 255, 255, 0.1)',
+            border: 'none',
+            cursor: 'pointer',
+            zIndex: 10,
+            transition: 'background-color 200ms',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+          }}
+          aria-label="Close wizard"
+        >
+          <X style={{ width: '20px', height: '20px' }} />
+        </button>
+
+        {/* Spacer for progress bar and close button */}
+        <div style={{ height: '60px', flexShrink: 0 }} />
+
+        {/* Step Content with Transitions */}
+        <div
+          ref={contentRef}
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            paddingBottom: '80px', // Space for fixed buttons
+            opacity: isTransitioning ? 0 : 1,
+            transform: isTransitioning ? 'translateY(20px)' : 'translateY(0)',
+            transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+          }}
+        >
+          {currentStep === 'project-type' && (
+            <ProjectTypeSelector onSelect={handleTemplateSelect} />
+          )}
+
+          {currentStep === 'features' && selectedTemplate && (
+            <FeatureSelector
+              template={selectedTemplate}
+              selectedFeatures={selectedFeatures}
+              onToggleFeature={handleToggleFeature}
+            />
+          )}
+
+          {currentStep === 'configuration' && selectedTemplate && (
+            <ConfigurationStep
+              template={selectedTemplate}
+              selectedFeatures={selectedFeatures}
+              configurations={configurations}
+              onUpdateConfig={handleUpdateConfig}
+              projectName={projectName}
+              onProjectNameChange={setProjectName}
+            />
+          )}
+
+          {currentStep === 'review' && selectedTemplate && (
+            <ReviewStep
+              template={selectedTemplate}
+              projectName={projectName}
+              selectedFeatures={selectedFeatures}
+              configurations={configurations}
+            />
+          )}
+        </div>
+
+        {/* Fixed Action Buttons */}
+        {currentStep !== 'project-type' && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              padding: '16px 32px',
+              backgroundColor: 'rgb(20, 22, 24)',
+              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              zIndex: 10,
+            }}
+          >
+            <button
+              onClick={() => {
+                if (currentStep === 'features') transitionToStep('project-type');
+                else if (currentStep === 'configuration') transitionToStep('features');
+                else if (currentStep === 'review') transitionToStep('configuration');
+              }}
+              style={{
+                padding: '8px 20px',
+                borderRadius: '8px',
+                border: '2px solid rgba(255, 255, 255, 0.2)',
+                backgroundColor: 'transparent',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 200ms',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              ← Back
+            </button>
+
+            {currentStep === 'features' && (
+              <div style={{ fontSize: '13px', color: 'rgb(156, 163, 175)' }}>
+                {selectedFeatures.size} feature{selectedFeatures.size !== 1 ? 's' : ''} selected
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                if (currentStep === 'features') {
+                  if (selectedFeatures.size > 0) transitionToStep('configuration');
+                } else if (currentStep === 'configuration') {
+                  if (projectName.trim().length > 0) transitionToStep('review');
+                } else if (currentStep === 'review') {
+                  handleStartBuilding();
+                }
+              }}
+              disabled={
+                (currentStep === 'features' && selectedFeatures.size === 0) ||
+                (currentStep === 'configuration' && projectName.trim().length === 0)
+              }
+              className={
+                (currentStep === 'features' && selectedFeatures.size > 0) ||
+                (currentStep === 'configuration' && projectName.trim().length > 0) ||
+                currentStep === 'review'
+                  ? 'send-button-active'
+                  : ''
+              }
+              style={{
+                padding: '8px 20px',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: 500,
+                cursor:
+                  (currentStep === 'features' && selectedFeatures.size === 0) ||
+                  (currentStep === 'configuration' && projectName.trim().length === 0)
+                    ? 'not-allowed'
+                    : 'pointer',
+                transition: 'all 200ms',
+                ...((currentStep === 'features' && selectedFeatures.size === 0) ||
+                (currentStep === 'configuration' && projectName.trim().length === 0)
+                  ? {
+                      backgroundColor: 'rgb(75, 85, 99)',
+                      color: 'rgba(255, 255, 255, 0.4)',
+                      border: 'none',
+                    }
+                  : currentStep === 'review'
+                  ? {
+                      backgroundImage: 'linear-gradient(90deg, #10b981 0%, #34d399 50%, #10b981 100%)',
+                      backgroundSize: '200% auto',
+                      animation: 'shimmer 3s linear infinite',
+                      boxShadow: '0 0 20px rgba(16, 185, 129, 0.5), 0 0 40px rgba(16, 185, 129, 0.3)',
+                      border: 'none',
+                    }
+                  : {}),
+              }}
+            >
+              {currentStep === 'review' ? 'Start Building' : 'Next →'}
+            </button>
+          </div>
+        )}
+
+        {/* Step Indicator */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            padding: '16px 0',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            backgroundColor: 'rgb(20, 22, 24)',
+          }}
+        >
+          {steps.map((step, index) => (
+            <div
+              key={step}
+              style={{
+                width: index === currentStepIndex ? '32px' : '8px',
+                height: '8px',
+                borderRadius: '4px',
+                backgroundColor: index <= currentStepIndex
+                  ? 'rgb(218, 238, 255)'
+                  : 'rgba(255, 255, 255, 0.2)',
+                transition: 'all 300ms',
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}

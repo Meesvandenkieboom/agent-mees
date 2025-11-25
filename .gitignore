@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+bun.lock
+data/
+server/generated/
+agent-girl
+release/
+
+# Ignore all .md files except README, CLAUDE, OAUTH, and command files
+*.md
+!README.md
+!CLAUDE.md
+!OAUTH.md
+!server/commands/**/*.md

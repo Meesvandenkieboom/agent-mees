@@ -1,0 +1,718 @@
+name: Build, Sign & Notarize Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build-macos:
+    name: Build & Notarize macOS
+    runs-on: macos-latest
+
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            target: bun-darwin-arm64
+            platform: macos-arm64
+          - arch: x64
+            target: bun-darwin-x64
+            platform: macos-intel
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build client bundle
+        run: bun run build
+
+      - name: Setup release directory (source-based)
+        run: |
+          mkdir -p release/agent-girl-${{ matrix.platform }}
+          cp -r server release/agent-girl-${{ matrix.platform }}/
+          cp -r client release/agent-girl-${{ matrix.platform }}/
+          cp -r dist release/agent-girl-${{ matrix.platform }}/
+          cp cli.ts release/agent-girl-${{ matrix.platform }}/
+          cp package.json release/agent-girl-${{ matrix.platform }}/
+          cp build-css.ts release/agent-girl-${{ matrix.platform }}/
+          cp bun.lockb release/agent-girl-${{ matrix.platform }}/ 2>/dev/null || true
+          cp LICENSE release/agent-girl-${{ matrix.platform }}/
+          cp credits.mp3 release/agent-girl-${{ matrix.platform }}/ 2>/dev/null || true
+          cp tailwind.config.js release/agent-girl-${{ matrix.platform }}/ 2>/dev/null || true
+          cp postcss.config.mjs release/agent-girl-${{ matrix.platform }}/ 2>/dev/null || true
+          cp tsconfig.json release/agent-girl-${{ matrix.platform }}/ 2>/dev/null || true
+
+      - name: Install production dependencies
+        run: |
+          cd release/agent-girl-${{ matrix.platform }}
+          bun install --production
+
+      - name: Create launcher script
+        run: |
+          cat > release/agent-girl-${{ matrix.platform }}/agent-girl << 'EOF'
+          #!/bin/bash
+          set -e
+
+          # Get the directory where this script is located
+          SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+          cd "$SCRIPT_DIR"
+
+          # =============================================================================
+          # Runtime Validation (runs every time to catch environment changes)
+          # =============================================================================
+
+          # 1. Check Node.js availability and version
+          if ! command -v node &> /dev/null; then
+              echo "❌ Node.js not found!"
+              echo ""
+              echo "Agent Girl requires Node.js v18+ for the Claude SDK."
+              echo "Install from: https://nodejs.org"
+              echo ""
+              exit 1
+          fi
+
+          NODE_VERSION=$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)
+          if [[ -z "$NODE_VERSION" ]] || [[ $NODE_VERSION -lt 18 ]]; then
+              echo "❌ Node.js v18+ required (found: v${NODE_VERSION:-unknown})"
+              echo "Please upgrade: https://nodejs.org"
+              exit 1
+          fi
+
+          # 2. Detect WSL environment and check for Windows Node.js
+          NODE_PATH=$(which node)
+          if grep -qi microsoft /proc/version 2>/dev/null; then
+              # We're in WSL
+              if [[ "$NODE_PATH" == *"/mnt/c/"* ]] || [[ "$NODE_PATH" == *.exe ]]; then
+                  echo "❌ Windows Node.js detected in WSL!"
+                  echo ""
+                  echo "You have Windows Node in your PATH, but Agent Girl needs native WSL Node."
+                  echo "Please install Node.js for WSL:"
+                  echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+                  echo "  sudo apt-get install -y nodejs"
+                  echo ""
+                  echo "Then prepend /usr/bin to your PATH in ~/.bashrc:"
+                  echo "  export PATH=\"/usr/bin:\$PATH\""
+                  exit 1
+              fi
+          fi
+
+          # 3. Check Bun availability (with WSL detection)
+          BUN_PATH=$(command -v bun 2>/dev/null || echo "")
+          NEED_INSTALL=false
+
+          if [ -z "$BUN_PATH" ]; then
+              NEED_INSTALL=true
+          elif [[ "$BUN_PATH" == *.exe ]] || [[ "$BUN_PATH" == *"/mnt/c/"* ]] || [[ "$BUN_PATH" == *"\\wsl"* ]]; then
+              echo "⚠️  Windows Bun detected in WSL - installing native version..."
+              NEED_INSTALL=true
+          fi
+
+          if [ "$NEED_INSTALL" = true ]; then
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "  🔧 Installing Bun..."
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              curl -fsSL https://bun.sh/install | bash
+              export PATH="$HOME/.bun/bin:$PATH"
+              echo "✅ Bun installed!"
+              echo
+          fi
+
+          # 4. Verify dependencies are installed and correct for this platform
+          if [ ! -d "node_modules" ]; then
+              echo "📦 First run - installing dependencies..."
+              bun install --production
+              echo "✅ Dependencies installed!"
+          fi
+
+          # 5. Quick sanity check - verify SDK exists
+          if [ ! -f "node_modules/@anthropic-ai/claude-agent-sdk/cli.js" ]; then
+              echo "⚠️  Claude SDK missing - reinstalling dependencies..."
+              rm -rf node_modules
+              bun install --production
+          fi
+
+          # Start the server
+          echo "🚀 Starting Agent Girl..."
+          echo
+          export STANDALONE_BUILD=true
+          exec bun run server/server.ts "$@"
+          EOF
+          chmod +x release/agent-girl-${{ matrix.platform }}/agent-girl
+
+      - name: Create .env template
+        run: |
+          cat > release/agent-girl-${{ matrix.platform }}/.env << 'EOF'
+          # =============================================================================
+          # Anthropic Configuration (Claude Models)
+          # =============================================================================
+          # Get your API key from: https://console.anthropic.com/
+          ANTHROPIC_API_KEY=sk-ant-your-key-here
+
+          # =============================================================================
+          # Z.AI Configuration (GLM Models)
+          # =============================================================================
+          # Get your API key from: https://z.ai
+          # The server automatically configures the endpoint when you select a GLM model
+          ZAI_API_KEY=your-zai-key-here
+
+          # =============================================================================
+          # Moonshot AI Configuration (Kimi K2 Models)
+          # =============================================================================
+          # Get your API key from: https://platform.moonshot.ai/
+          # The server automatically configures the endpoint when you select a Kimi model
+          MOONSHOT_API_KEY=your-moonshot-key-here
+          EOF
+
+      - name: Create README
+        run: |
+          cat > release/agent-girl-${{ matrix.platform }}/README.txt << 'EOF'
+          Agent Girl Application - macOS
+          ==============================
+
+          Setup (First Time):
+          1. Open the .env file in a text editor
+          2. Add your Anthropic API key (get from https://console.anthropic.com/)
+             Replace: ANTHROPIC_API_KEY=sk-ant-your-key-here
+             With: ANTHROPIC_API_KEY=sk-ant-your-actual-key
+
+          To Run:
+          - Double-click the 'agent-girl' file
+          - Or run from terminal: ./agent-girl
+          - The app will start at http://localhost:3001
+          - Your browser should open automatically
+
+          First Run:
+          - On first launch, Bun and Node.js will be auto-installed (takes ~10 seconds)
+          - Subsequent launches are instant
+
+          Data Storage:
+          - Sessions stored in ~/Documents/agent-girl/
+          - All your conversations are saved locally
+
+          Requirements:
+          - macOS 11+ (Big Sur or later)
+          - Node.js v18+ (auto-installed if missing)
+          - Anthropic API key (for Claude models)
+          - Internet connection (for first-time setup)
+
+          Troubleshooting:
+          - If port 3001 is busy, kill the process: lsof -ti:3001 | xargs kill -9
+          - Make sure .env file has your real API key
+
+          Enjoy!
+          EOF
+
+      - name: Import Apple Developer Certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # Create keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security import certificate.p12 \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # Clean up
+          rm certificate.p12
+
+      - name: Sign binary
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          codesign --force --options runtime \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            --timestamp \
+            release/agent-girl-${{ matrix.platform }}/agent-girl
+
+          # Verify signature
+          codesign --verify --verbose release/agent-girl-${{ matrix.platform }}/agent-girl
+
+      - name: Create ZIP archive
+        run: |
+          cd release
+          zip -r agent-girl-${{ matrix.platform }}.zip agent-girl-${{ matrix.platform }}/
+
+      - name: Notarize application
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Submit for notarization
+          xcrun notarytool submit release/agent-girl-${{ matrix.platform }}.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          # Note: We don't staple because it's a directory structure, not a .app bundle
+          # Users will download the notarized zip which is sufficient for Gatekeeper
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-girl-${{ matrix.platform }}
+          path: release/agent-girl-${{ matrix.platform }}.zip
+          retention-days: 7
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build client bundle
+        run: bun run build
+
+      - name: Setup release directory (source-based)
+        run: |
+          New-Item -ItemType Directory -Force -Path release\agent-girl-windows-x64
+          Copy-Item -Recurse -Force server release\agent-girl-windows-x64\
+          Copy-Item -Recurse -Force client release\agent-girl-windows-x64\
+          Copy-Item -Recurse -Force dist release\agent-girl-windows-x64\
+          Copy-Item -Force cli.ts release\agent-girl-windows-x64\
+          Copy-Item -Force package.json release\agent-girl-windows-x64\
+          Copy-Item -Force build-css.ts release\agent-girl-windows-x64\
+          if (Test-Path bun.lockb) { Copy-Item -Force bun.lockb release\agent-girl-windows-x64\ }
+          Copy-Item -Force LICENSE release\agent-girl-windows-x64\
+          if (Test-Path credits.mp3) { Copy-Item -Force credits.mp3 release\agent-girl-windows-x64\ }
+          if (Test-Path tailwind.config.js) { Copy-Item -Force tailwind.config.js release\agent-girl-windows-x64\ }
+          if (Test-Path postcss.config.mjs) { Copy-Item -Force postcss.config.mjs release\agent-girl-windows-x64\ }
+          if (Test-Path tsconfig.json) { Copy-Item -Force tsconfig.json release\agent-girl-windows-x64\ }
+
+      - name: Install production dependencies
+        run: |
+          cd release\agent-girl-windows-x64
+          bun install --production
+
+      - name: Create launcher script
+        run: |
+          @'
+          @echo off
+          setlocal
+
+          :: Get the directory where this script is located
+          set "SCRIPT_DIR=%~dp0"
+          cd /d "%SCRIPT_DIR%"
+
+          :: Check if bun is installed
+          where bun >nul 2>nul
+          if %ERRORLEVEL% NEQ 0 (
+              echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              echo   🔧 Installing Bun...
+              echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              powershell -c "irm bun.sh/install.ps1 | iex"
+
+              :: Add bun to PATH for this session
+              set "PATH=%USERPROFILE%\.bun\bin;%PATH%"
+
+              echo.
+              echo ✅ Bun installed successfully!
+              echo.
+          )
+
+          :: Check if Node.js is installed (required for Claude SDK)
+          where node >nul 2>nul
+          if %ERRORLEVEL% NEQ 0 (
+              echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              echo   🔧 Installing Node.js...
+              echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+              :: Try winget first (Windows 10+)
+              where winget >nul 2>nul
+              if %ERRORLEVEL% EQU 0 (
+                  winget install -e --id OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements
+              ) else (
+                  :: Fallback to chocolatey
+                  where choco >nul 2>nul
+                  if %ERRORLEVEL% EQU 0 (
+                      choco install nodejs-lts -y
+                  ) else (
+                      echo ⚠️  Please install Node.js manually from https://nodejs.org
+                      echo    Or install winget/chocolatey first
+                      pause
+                      exit /b 1
+                  )
+              )
+
+              :: Refresh PATH
+              set "PATH=%ProgramFiles%\nodejs;%PATH%"
+
+              echo.
+              echo ✅ Node.js installed successfully!
+              echo.
+          )
+
+          echo ✅ Node.js ready
+          echo.
+
+          :: Start the server in production mode
+          echo 🚀 Starting Agent Girl...
+          echo.
+          set STANDALONE_BUILD=true
+          bun run server\server.ts %*
+          '@ | Out-File -FilePath release\agent-girl-windows-x64\agent-girl.bat -Encoding ASCII
+
+      - name: Create .env template
+        run: |
+          @"
+          # =============================================================================
+          # Anthropic Configuration (Claude Models)
+          # =============================================================================
+          # Get your API key from: https://console.anthropic.com/
+          ANTHROPIC_API_KEY=sk-ant-your-key-here
+
+          # =============================================================================
+          # Z.AI Configuration (GLM Models)
+          # =============================================================================
+          # Get your API key from: https://z.ai
+          # The server automatically configures the endpoint when you select a GLM model
+          ZAI_API_KEY=your-zai-key-here
+
+          # =============================================================================
+          # Moonshot AI Configuration (Kimi K2 Models)
+          # =============================================================================
+          # Get your API key from: https://platform.moonshot.ai/
+          # The server automatically configures the endpoint when you select a Kimi model
+          MOONSHOT_API_KEY=your-moonshot-key-here
+          "@ | Out-File -FilePath release\agent-girl-windows-x64\.env -Encoding UTF8
+
+      - name: Create README
+        run: |
+          @"
+          Agent Girl Application - Windows
+          =================================
+
+          Setup (First Time):
+          1. Open the .env file in a text editor
+          2. Add your Anthropic API key (get from https://console.anthropic.com/)
+             Replace: ANTHROPIC_API_KEY=sk-ant-your-key-here
+             With: ANTHROPIC_API_KEY=sk-ant-your-actual-key
+
+          To Run:
+          - Double-click the 'agent-girl.bat' file
+          - Or run from command prompt: agent-girl.bat
+          - The app will start at http://localhost:3001
+          - Your browser should open automatically
+
+          First Run:
+          - On first launch, Bun and Node.js will be auto-installed (takes ~15 seconds)
+          - Subsequent launches are instant
+
+          Data Storage:
+          - Sessions stored in %USERPROFILE%\Documents\agent-girl\
+          - All your conversations are saved locally
+
+          Requirements:
+          - Windows 10 or later
+          - Node.js v18+ (auto-installed if missing)
+          - Anthropic API key (for Claude models)
+          - Internet connection (for first-time setup)
+
+          Troubleshooting:
+          - If port 3001 is busy, kill the process using Task Manager
+          - Make sure .env file has your real API key
+
+          Enjoy!
+          "@ | Out-File -FilePath release\agent-girl-windows-x64\README.txt -Encoding UTF8
+
+      - name: Create ZIP archive
+        run: |
+          Compress-Archive -Path release\agent-girl-windows-x64 -DestinationPath release\agent-girl-windows-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-girl-windows-x64
+          path: release/agent-girl-windows-x64.zip
+          retention-days: 7
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build client bundle
+        run: bun run build
+
+      - name: Setup release directory (source-based)
+        run: |
+          mkdir -p release/agent-girl-linux-x64
+          cp -r server release/agent-girl-linux-x64/
+          cp -r client release/agent-girl-linux-x64/
+          cp -r dist release/agent-girl-linux-x64/
+          cp cli.ts release/agent-girl-linux-x64/
+          cp package.json release/agent-girl-linux-x64/
+          cp build-css.ts release/agent-girl-linux-x64/
+          cp bun.lockb release/agent-girl-linux-x64/ 2>/dev/null || true
+          cp LICENSE release/agent-girl-linux-x64/
+          cp credits.mp3 release/agent-girl-linux-x64/ 2>/dev/null || true
+          cp tailwind.config.js release/agent-girl-linux-x64/ 2>/dev/null || true
+          cp postcss.config.mjs release/agent-girl-linux-x64/ 2>/dev/null || true
+          cp tsconfig.json release/agent-girl-linux-x64/ 2>/dev/null || true
+
+      - name: Install production dependencies
+        run: |
+          cd release/agent-girl-linux-x64
+          bun install --production
+
+      - name: Create launcher script
+        run: |
+          cat > release/agent-girl-linux-x64/agent-girl << 'EOF'
+          #!/bin/bash
+          set -e
+
+          # Get the directory where this script is located
+          SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+          cd "$SCRIPT_DIR"
+
+          # =============================================================================
+          # Runtime Validation (runs every time to catch environment changes)
+          # =============================================================================
+
+          # 1. Check Node.js availability and version
+          if ! command -v node &> /dev/null; then
+              echo "❌ Node.js not found!"
+              echo ""
+              echo "Agent Girl requires Node.js v18+ for the Claude SDK."
+              echo "Install from: https://nodejs.org"
+              echo ""
+              exit 1
+          fi
+
+          NODE_VERSION=$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)
+          if [[ -z "$NODE_VERSION" ]] || [[ $NODE_VERSION -lt 18 ]]; then
+              echo "❌ Node.js v18+ required (found: v${NODE_VERSION:-unknown})"
+              echo "Please upgrade: https://nodejs.org"
+              exit 1
+          fi
+
+          # 2. Detect WSL environment and check for Windows Node.js
+          NODE_PATH=$(which node)
+          if grep -qi microsoft /proc/version 2>/dev/null; then
+              # We're in WSL
+              if [[ "$NODE_PATH" == *"/mnt/c/"* ]] || [[ "$NODE_PATH" == *.exe ]]; then
+                  echo "❌ Windows Node.js detected in WSL!"
+                  echo ""
+                  echo "You have Windows Node in your PATH, but Agent Girl needs native WSL Node."
+                  echo "Please install Node.js for WSL:"
+                  echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+                  echo "  sudo apt-get install -y nodejs"
+                  echo ""
+                  echo "Then prepend /usr/bin to your PATH in ~/.bashrc:"
+                  echo "  export PATH=\"/usr/bin:\$PATH\""
+                  exit 1
+              fi
+          fi
+
+          # 3. Check Bun availability (with WSL detection)
+          BUN_PATH=$(command -v bun 2>/dev/null || echo "")
+          NEED_INSTALL=false
+
+          if [ -z "$BUN_PATH" ]; then
+              NEED_INSTALL=true
+          elif [[ "$BUN_PATH" == *.exe ]] || [[ "$BUN_PATH" == *"/mnt/c/"* ]] || [[ "$BUN_PATH" == *"\\wsl"* ]]; then
+              echo "⚠️  Windows Bun detected in WSL - installing native version..."
+              NEED_INSTALL=true
+          fi
+
+          if [ "$NEED_INSTALL" = true ]; then
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              echo "  🔧 Installing Bun..."
+              echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+              curl -fsSL https://bun.sh/install | bash
+              export PATH="$HOME/.bun/bin:$PATH"
+              echo "✅ Bun installed!"
+              echo
+          fi
+
+          # 4. Verify dependencies are installed and correct for this platform
+          if [ ! -d "node_modules" ]; then
+              echo "📦 First run - installing dependencies..."
+              bun install --production
+              echo "✅ Dependencies installed!"
+          fi
+
+          # 5. Quick sanity check - verify SDK exists
+          if [ ! -f "node_modules/@anthropic-ai/claude-agent-sdk/cli.js" ]; then
+              echo "⚠️  Claude SDK missing - reinstalling dependencies..."
+              rm -rf node_modules
+              bun install --production
+          fi
+
+          # Start the server
+          echo "🚀 Starting Agent Girl..."
+          echo
+          export STANDALONE_BUILD=true
+          exec bun run server/server.ts "$@"
+          EOF
+          chmod +x release/agent-girl-linux-x64/agent-girl
+
+      - name: Create .env template
+        run: |
+          cat > release/agent-girl-linux-x64/.env << 'EOF'
+          # =============================================================================
+          # Anthropic Configuration (Claude Models)
+          # =============================================================================
+          # Get your API key from: https://console.anthropic.com/
+          ANTHROPIC_API_KEY=sk-ant-your-key-here
+
+          # =============================================================================
+          # Z.AI Configuration (GLM Models)
+          # =============================================================================
+          # Get your API key from: https://z.ai
+          # The server automatically configures the endpoint when you select a GLM model
+          ZAI_API_KEY=your-zai-key-here
+
+          # =============================================================================
+          # Moonshot AI Configuration (Kimi K2 Models)
+          # =============================================================================
+          # Get your API key from: https://platform.moonshot.ai/
+          # The server automatically configures the endpoint when you select a Kimi model
+          MOONSHOT_API_KEY=your-moonshot-key-here
+          EOF
+
+      - name: Create README
+        run: |
+          cat > release/agent-girl-linux-x64/README.txt << 'EOF'
+          Agent Girl Application - Linux
+          ===============================
+
+          Setup (First Time):
+          1. Open the .env file in a text editor
+          2. Add your Anthropic API key (get from https://console.anthropic.com/)
+             Replace: ANTHROPIC_API_KEY=sk-ant-your-key-here
+             With: ANTHROPIC_API_KEY=sk-ant-your-actual-key
+
+          To Run:
+          - Right-click 'agent-girl' → Properties → Permissions → Check "Allow executing file as program"
+          - Then double-click the 'agent-girl' file
+          - Or run from terminal: ./agent-girl
+          - The app will start at http://localhost:3001
+          - Your browser should open automatically
+
+          First Run:
+          - On first launch, Bun and Node.js will be auto-installed (takes ~10 seconds)
+          - Subsequent launches are instant
+
+          Data Storage:
+          - Sessions stored in ~/Documents/agent-girl/
+          - All your conversations are saved locally
+
+          Requirements:
+          - Linux (Ubuntu 20.04+, Debian 10+, Fedora, Arch, etc.)
+          - x64 architecture
+          - Node.js v18+ (auto-installed if missing)
+          - Anthropic API key (for Claude models)
+          - Internet connection (for first-time setup)
+
+          Troubleshooting:
+          - If port 3001 is busy, kill the process: lsof -ti:3001 | xargs kill -9
+          - If permission denied, run: chmod +x agent-girl
+          - Make sure .env file has your real API key
+          - On some distributions, you may need to install curl: sudo apt install curl
+
+          Enjoy!
+          EOF
+
+      - name: Create ZIP archive
+        run: |
+          cd release
+          zip -r agent-girl-linux-x64.zip agent-girl-linux-x64/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-girl-linux-x64
+          path: release/agent-girl-linux-x64.zip
+          retention-days: 7
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Agent Girl ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/agent-girl-macos-arm64/agent-girl-macos-arm64.zip
+            artifacts/agent-girl-macos-intel/agent-girl-macos-intel.zip
+            artifacts/agent-girl-windows-x64/agent-girl-windows-x64.zip
+            artifacts/agent-girl-linux-x64/agent-girl-linux-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

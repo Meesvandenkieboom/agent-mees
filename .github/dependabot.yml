@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # Keep Claude Agent SDK updated automatically
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily" # Check daily for SDK updates
+    allow:
+      # Only track the Claude Agent SDK (the only Anthropic package we use)
+      - dependency-name: "@anthropic-ai/claude-agent-sdk"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+    labels:
+      - "dependencies"
+      - "auto-merge"
+
+  # Optional: Keep other dependencies updated weekly
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    ignore:
+      # Already handled by daily check above
+      - dependency-name: "@anthropic-ai/claude-agent-sdk"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+    labels:
+      - "dependencies"
