@@ -18,7 +18,15 @@
       "Bash(lsof:*)",
       "Bash(xargs kill:*)",
       "Bash(bun run dev)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(bunx better-sqlite3:*)",
+      "Bash(sqlite3:*)",
+      "Bash(where:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd.exe /c \"taskkill /F /PID 1012 /PID 24332\")",
+      "Bash(powershell.exe -Command \"Get-Process | Where-Object {$_Id -eq 1012 -or $_Id -eq 24332} | Stop-Process -Force\")"
     ],
     "deny": [],
     "ask": []
