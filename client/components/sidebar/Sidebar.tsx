@@ -21,6 +21,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Github, Loader2, LogOut } from 'lucide-react';
 import { toast } from '../../utils/toast';
+import { GitHubOAuthSetupModal } from '../setup/GitHubOAuthSetupModal';
 
 interface Chat {
   id: string;
@@ -60,6 +61,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [githubStatus, setGithubStatus] = useState<GitHubStatus | null>(null);
   const [isLoadingGithub, setIsLoadingGithub] = useState(false);
   const [isHoveringGithub, setIsHoveringGithub] = useState(false);
+  const [showGitHubSetup, setShowGitHubSetup] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Check GitHub status on mount
@@ -105,13 +107,12 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         // Open GitHub auth in same window (will redirect back)
         window.location.href = data.authUrl;
       } else {
-        toast.error('GitHub OAuth not configured', {
-          description: data.error || 'Contact administrator to set up GitHub integration'
-        });
+        // OAuth not configured - show setup modal instead of error
+        setShowGitHubSetup(true);
+        setIsLoadingGithub(false);
       }
     } catch {
       toast.error('Failed to start GitHub connection');
-    } finally {
       setIsLoadingGithub(false);
     }
   };
@@ -505,6 +506,18 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
           )}
         </div>
       </div>
+
+      {/* GitHub OAuth Setup Modal */}
+      {showGitHubSetup && (
+        <GitHubOAuthSetupModal
+          onComplete={() => {
+            setShowGitHubSetup(false);
+            // Retry OAuth flow after successful setup
+            handleGithubConnect();
+          }}
+          onClose={() => setShowGitHubSetup(false)}
+        />
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getAppDataDirectory } from '../directoryUtils';
+import { writeGitHubCredentialsToEnv, reloadEnvironmentVariables } from '../utils/envWriter';
 
 // GitHub OAuth configuration
 // Users should set these in their environment or through the setup wizard
@@ -296,6 +297,71 @@ export async function handleGitHubRoutes(
     }), {
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  // POST /api/github/configure - Configure GitHub OAuth credentials
+  if (url.pathname === '/api/github/configure' && req.method === 'POST') {
+    try {
+      const body = await req.json() as { clientId: string; clientSecret: string };
+      const { clientId, clientSecret } = body;
+
+      // Validate inputs
+      if (!clientId || !clientSecret) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Client ID and Secret are required'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Validate format - Client ID should be alphanumeric, minimum 20 chars
+      if (!/^[A-Za-z0-9]{20,}$/.test(clientId)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid Client ID format. Expected: alphanumeric, 20+ characters'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Validate format - Client Secret should be 40-character hex string
+      if (!/^[a-f0-9]{40}$/.test(clientSecret)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Invalid Client Secret format. Expected: 40 hexadecimal characters'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Write to .env file
+      await writeGitHubCredentialsToEnv(clientId, clientSecret);
+
+      // Reload process.env
+      reloadEnvironmentVariables();
+
+      return new Response(JSON.stringify({
+        success: true,
+        message: 'GitHub OAuth configured successfully'
+      }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    } catch (error) {
+      console.error('Failed to configure GitHub OAuth:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      return new Response(JSON.stringify({
+        success: false,
+        error: `Configuration failed: ${errorMsg}`
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
   }
 
   // GET /api/github/repos - List user's repositories
