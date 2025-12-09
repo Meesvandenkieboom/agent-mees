@@ -377,13 +377,23 @@ export async function handleGitHubRoutes(
     }
 
     try {
-      const body = await req.json() as { repoUrl: string; targetDir: string };
-      const { repoUrl, targetDir } = body;
+      const body = await req.json() as { repoUrl: string; targetDir?: string; sessionId?: string };
+      const { repoUrl, sessionId } = body;
+      let { targetDir } = body;
+
+      // If sessionId is provided, look up the working directory
+      if (!targetDir && sessionId) {
+        const { sessionDb } = await import('../database');
+        const session = sessionDb.getSession(sessionId);
+        if (session) {
+          targetDir = session.working_directory;
+        }
+      }
 
       if (!repoUrl || !targetDir) {
         return new Response(JSON.stringify({
           success: false,
-          error: 'Missing repoUrl or targetDir'
+          error: 'Missing repoUrl or targetDir/sessionId'
         }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -400,16 +410,46 @@ export async function handleGitHubRoutes(
       const { promisify } = await import('util');
       const execAsync = promisify(exec);
 
-      // Clone the repository
-      console.log(`🔄 Cloning repository to ${targetDir}...`);
-      const { stdout, stderr } = await execAsync(
-        `git clone "${authenticatedUrl}" "${targetDir}"`,
-        { timeout: 120000 } // 2 minute timeout
-      );
+      // Check if target directory exists and is not empty
+      const dirExists = fs.existsSync(targetDir);
+      const dirContents = dirExists ? fs.readdirSync(targetDir) : [];
+      const hasGitFolder = dirContents.includes('.git');
 
-      console.log('✅ Repository cloned successfully');
-      if (stdout) console.log(stdout);
-      if (stderr) console.log(stderr);
+      if (hasGitFolder) {
+        // Already a git repo - just pull latest
+        console.log(`📂 Directory already has .git, pulling latest...`);
+        const { stdout, stderr } = await execAsync(
+          `cd "${targetDir}" && git pull`,
+          { timeout: 120000 }
+        );
+        if (stdout) console.log(stdout);
+        if (stderr) console.log(stderr);
+        console.log('✅ Repository updated');
+      } else if (dirExists && dirContents.length > 0) {
+        // Directory exists with content but no .git - init and pull
+        console.log(`📂 Directory exists with content, initializing git...`);
+        const commands = [
+          `cd "${targetDir}"`,
+          `git init`,
+          `git remote add origin "${authenticatedUrl}"`,
+          `git fetch origin`,
+          `git checkout -t origin/main || git checkout -t origin/master`
+        ].join(' && ');
+        const { stdout, stderr } = await execAsync(commands, { timeout: 120000 });
+        if (stdout) console.log(stdout);
+        if (stderr) console.log(stderr);
+        console.log('✅ Repository initialized');
+      } else {
+        // Empty or non-existent directory - clone normally
+        console.log(`🔄 Cloning repository to ${targetDir}...`);
+        const { stdout, stderr } = await execAsync(
+          `git clone "${authenticatedUrl}" "${targetDir}"`,
+          { timeout: 120000 } // 2 minute timeout
+        );
+        if (stdout) console.log(stdout);
+        if (stderr) console.log(stderr);
+        console.log('✅ Repository cloned successfully');
+      }
 
       return new Response(JSON.stringify({
         success: true,

@@ -1037,8 +1037,32 @@ export function ChatContainer() {
         const permissionMode = isPlanMode ? 'plan' : 'bypassPermissions';
         await sessionAPI.updatePermissionMode(sessionId, permissionMode);
 
-        // Clear selectedRepo after session creation (it's now stored in the session)
+        // Clone GitHub repo if selected (now that session exists with working directory)
         if (selectedRepo) {
+          console.log(`🐙 Cloning GitHub repo ${selectedRepo.name} to session ${sessionId}...`);
+          try {
+            const cloneResponse = await fetch('/api/github/clone', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                repoUrl: selectedRepo.url,
+                sessionId
+              })
+            });
+            const cloneData = await cloneResponse.json();
+            if (cloneData.success) {
+              toast.success(`Cloned ${selectedRepo.name}`, {
+                description: `Repository ready in ${cloneData.path}`
+              });
+            } else {
+              toast.error('Failed to clone repository', {
+                description: cloneData.error
+              });
+            }
+          } catch (error) {
+            console.error('Clone error:', error);
+            toast.error('Failed to clone repository');
+          }
           setSelectedRepo(null);
         }
 
