@@ -80,6 +80,12 @@ Agent Smith is a **desktop-first chat interface** that brings the power of Anthr
 - **Z.AI** - Alternative provider with GLM models + web search
 - **Easy Switching** - Change providers via dropdown
 
+### 🐙 GitHub Integration
+- **OAuth Connection** - One-click GitHub authentication
+- **Push Access** - Automatically configured for commits and pushes
+- **Private Repos** - Full access to your private repositories
+- **No Manual Setup** - No need for SSH keys or `gh` CLI
+
 ### ⚡ Developer Experience
 - **Hot Reload** - Instant updates during development
 - **TypeScript** - Full type safety
