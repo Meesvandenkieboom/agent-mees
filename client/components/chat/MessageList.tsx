@@ -65,7 +65,7 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
     }
   }, [isLoading]);
 
-  // Smooth token count animation
+  // Smooth token count animation with throttling
   useEffect(() => {
     const startValue = displayedTokenCount;
     const endValue = liveTokenCount;
@@ -74,16 +74,25 @@ export function MessageList({ messages, isLoading, liveTokenCount = 0, scrollCon
 
     if (startValue === endValue) return;
 
+    // Throttle animation updates to every 16ms (60fps) for better performance
+    let lastUpdateTime = 0;
+    const throttleDelay = 16;
+
     const animate = () => {
       const now = Date.now();
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
 
-      // Ease-out cubic function for smooth deceleration
-      const easeOut = 1 - Math.pow(1 - progress, 3);
+      // Only update if enough time has passed since last update
+      if (now - lastUpdateTime >= throttleDelay || progress >= 1) {
+        lastUpdateTime = now;
 
-      const currentValue = Math.floor(startValue + (endValue - startValue) * easeOut);
-      setDisplayedTokenCount(currentValue);
+        // Ease-out cubic function for smooth deceleration
+        const easeOut = 1 - Math.pow(1 - progress, 3);
+
+        const currentValue = Math.floor(startValue + (endValue - startValue) * easeOut);
+        setDisplayedTokenCount(currentValue);
+      }
 
       if (progress < 1) {
         animationFrameRef.current = requestAnimationFrame(animate);

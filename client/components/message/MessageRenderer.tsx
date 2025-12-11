@@ -28,7 +28,9 @@ interface MessageRendererProps {
   message: Message;
 }
 
-export function MessageRenderer({ message }: MessageRendererProps) {
+// Memoize MessageRenderer to prevent unnecessary re-renders
+// Messages only re-render when their content actually changes
+export const MessageRenderer = React.memo(function MessageRenderer({ message }: MessageRendererProps) {
   switch (message.type) {
     case 'user':
       return <UserMessage message={message} />;
@@ -53,7 +55,22 @@ export function MessageRenderer({ message }: MessageRendererProps) {
       );
     }
   }
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison function for memo
+  // Only re-render if message content actually changed
+  if (prevProps.message.id !== nextProps.message.id) return false;
+  if (prevProps.message.type !== nextProps.message.type) return false;
+
+  // For assistant messages, do deep comparison of content
+  if (nextProps.message.type === 'assistant') {
+    const prevContent = JSON.stringify(prevProps.message.content);
+    const nextContent = JSON.stringify(nextProps.message.content);
+    return prevContent === nextContent;
+  }
+
+  // For user/system messages, compare content directly
+  return prevProps.message.content === nextProps.message.content;
+});
 
 export * from './types';
 export { UserMessage } from './UserMessage';

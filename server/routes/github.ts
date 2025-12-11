@@ -679,6 +679,7 @@ export function isGitHubConnected(): boolean {
 /**
  * Configure git credentials for a repository directory
  * This sets up git to use the GitHub OAuth token for push/pull operations
+ * Uses Git Credential Manager for persistent, system-level credential storage
  */
 export async function configureGitCredentials(repoDir: string): Promise<void> {
   const token = loadToken();
@@ -691,18 +692,50 @@ export async function configureGitCredentials(repoDir: string): Promise<void> {
   const execAsync = promisify(exec);
 
   try {
-    // Set git config to use the token for this repository
-    // This uses the local config (--local) so it only affects this repo
-    await execAsync(`cd "${repoDir}" && git config --local credential.helper store`);
+    // Check if Git Credential Manager is installed
+    let gcmInstalled = false;
+    try {
+      const { stdout } = await execAsync('git credential-manager --version', { timeout: 5000 });
+      if (stdout) {
+        gcmInstalled = true;
+        console.log('✅ Git Credential Manager detected');
+      }
+    } catch {
+      // GCM not installed, fall back to credential.helper
+      console.log('ℹ️  Git Credential Manager not found, using credential.helper store');
+    }
 
-    // Set the remote URL with embedded token for authentication
+    if (gcmInstalled) {
+      // Use Git Credential Manager (GCM) for persistent credential storage
+      // GCM stores credentials in OS-level secure storage (Windows Credential Manager, macOS Keychain, Linux Secret Service)
+      await execAsync(`cd "${repoDir}" && git config --local credential.helper manager`);
+
+      // Also configure credential.helper for fallback
+      await execAsync(`cd "${repoDir}" && git config --local credential.https://github.com.helper manager`);
+    } else {
+      // Fallback: Use credential.helper store with cache
+      // Store credentials in ~/.git-credentials (persistent across updates)
+      await execAsync(`cd "${repoDir}" && git config --local credential.helper 'store --file ~/.git-credentials'`);
+
+      // Also add a cache layer for performance (credentials cached in memory for 1 hour)
+      await execAsync(`cd "${repoDir}" && git config --local credential.helper 'cache --timeout=3600'`);
+    }
+
+    // Set the remote URL with embedded token for initial authentication
     const { stdout: remoteUrl } = await execAsync(`cd "${repoDir}" && git remote get-url origin`);
     const cleanUrl = remoteUrl.trim().replace(/https:\/\/(.*@)?github\.com\//, 'https://github.com/');
     const authenticatedUrl = cleanUrl.replace('https://github.com/', `https://x-access-token:${token.access_token}@github.com/`);
 
     await execAsync(`cd "${repoDir}" && git remote set-url origin "${authenticatedUrl}"`);
 
-    console.log('✅ Git credentials configured for push access');
+    // Manually store credentials in git credential store for persistence
+    // This ensures credentials persist even if GCM is not installed
+    if (!gcmInstalled) {
+      const credentialInput = `protocol=https\nhost=github.com\nusername=x-access-token\npassword=${token.access_token}\n\n`;
+      await execAsync(`cd "${repoDir}" && echo "${credentialInput.replace(/\n/g, '\\n')}" | git credential-store --file ~/.git-credentials store`, { timeout: 5000 });
+    }
+
+    console.log('✅ Git credentials configured for persistent push access');
   } catch (error) {
     console.error('Failed to configure git credentials:', error);
     throw error;

@@ -50,24 +50,32 @@ export function ScrollButton({ scrollContainerRef }: ScrollButtonProps) {
     }
   }, [scrollContainerRef]);
 
-  // Attach scroll listener with debouncing
+  // Attach scroll listener with optimized debouncing
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
     let timeoutId: NodeJS.Timeout;
+    let rafId: number | null = null;
 
     const handleScroll = () => {
-      // Debounce scroll events for performance
+      // Cancel any pending RAF/timeout
+      if (rafId) cancelAnimationFrame(rafId);
       clearTimeout(timeoutId);
-      timeoutId = setTimeout(checkScrollPosition, 50);
+
+      // Use requestAnimationFrame for better performance
+      // Only run after scrolling stops (200ms debounce)
+      rafId = requestAnimationFrame(() => {
+        timeoutId = setTimeout(checkScrollPosition, 200);
+      });
     };
 
-    container.addEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll, { passive: true });
     checkScrollPosition(); // Initial check
 
     return () => {
       container.removeEventListener('scroll', handleScroll);
+      if (rafId) cancelAnimationFrame(rafId);
       clearTimeout(timeoutId);
     };
   }, [scrollContainerRef, checkScrollPosition]);
