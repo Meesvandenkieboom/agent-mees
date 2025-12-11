@@ -151,6 +151,7 @@ log_section "Installing Update"
 
 # Backup critical files
 ENV_BACKUP=""
+SERVER_ENV_BACKUP=""
 DATA_BACKUP=""
 TOKENS_BACKUP=""
 
@@ -158,6 +159,12 @@ if [[ -f "$INSTALL_DIR/.env" ]]; then
   ENV_BACKUP="/tmp/agent-smith-env-$$"
   cp "$INSTALL_DIR/.env" "$ENV_BACKUP"
   log_info "Backed up .env"
+fi
+
+if [[ -f "$INSTALL_DIR/server/.env" ]]; then
+  SERVER_ENV_BACKUP="/tmp/agent-smith-server-env-$$"
+  cp "$INSTALL_DIR/server/.env" "$SERVER_ENV_BACKUP"
+  log_info "Backed up server/.env (GitHub credentials)"
 fi
 
 if [[ -d "$INSTALL_DIR/data" ]]; then
@@ -189,6 +196,13 @@ if [[ -n "$ENV_BACKUP" ]] && [[ -f "$ENV_BACKUP" ]]; then
   cp "$ENV_BACKUP" "$INSTALL_DIR/.env"
   rm "$ENV_BACKUP"
   log_success "Restored .env"
+fi
+
+if [[ -n "$SERVER_ENV_BACKUP" ]] && [[ -f "$SERVER_ENV_BACKUP" ]]; then
+  mkdir -p "$INSTALL_DIR/server"
+  cp "$SERVER_ENV_BACKUP" "$INSTALL_DIR/server/.env"
+  rm "$SERVER_ENV_BACKUP"
+  log_success "Restored server/.env (GitHub credentials)"
 fi
 
 if [[ -n "$DATA_BACKUP" ]] && [[ -d "$DATA_BACKUP" ]]; then

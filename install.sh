@@ -385,11 +385,13 @@ install_application() {
   mkdir -p "$INSTALL_DIR" || fatal_error "Failed to create install directory" \
     "Check that you have write permissions to $(dirname "$INSTALL_DIR")"
 
-  # Backup .env, data, and OAuth tokens BEFORE removing anything (extra safety)
+  # Backup .env, server/.env, data, and OAuth tokens BEFORE removing anything (extra safety)
   local ENV_FILE="$INSTALL_DIR/.env"
+  local SERVER_ENV_FILE="$INSTALL_DIR/server/.env"
   local DATA_DIR="$INSTALL_DIR/data"
   local TOKENS_FILE="$INSTALL_DIR/.tokens"
   local ENV_BACKUP=""
+  local SERVER_ENV_BACKUP=""
   local DATA_BACKUP=""
   local TOKENS_BACKUP=""
 
@@ -397,6 +399,12 @@ install_application() {
     ENV_BACKUP="/tmp/agent-smith-env-backup-$$"
     cp "$ENV_FILE" "$ENV_BACKUP"
     log_info "Backed up .env to temporary location"
+  fi
+
+  if [[ -f "$SERVER_ENV_FILE" ]]; then
+    SERVER_ENV_BACKUP="/tmp/agent-smith-server-env-backup-$$"
+    cp "$SERVER_ENV_FILE" "$SERVER_ENV_BACKUP"
+    log_info "Backed up server/.env (GitHub credentials) to temporary location"
   fi
 
   if [[ -d "$DATA_DIR" ]]; then
@@ -430,6 +438,15 @@ install_application() {
     cp "$ENV_BACKUP" "$ENV_FILE"
     rm "$ENV_BACKUP"
     log_success "API keys preserved"
+  fi
+
+  # Restore server/.env from temporary backup
+  if [[ -n "$SERVER_ENV_BACKUP" ]] && [[ -f "$SERVER_ENV_BACKUP" ]]; then
+    log_info "Restoring your GitHub credentials..."
+    mkdir -p "$INSTALL_DIR/server"
+    cp "$SERVER_ENV_BACKUP" "$SERVER_ENV_FILE"
+    rm "$SERVER_ENV_BACKUP"
+    log_success "GitHub credentials preserved"
   fi
 
   # Restore data from temporary backup
