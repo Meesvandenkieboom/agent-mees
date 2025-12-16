@@ -59,7 +59,7 @@ export const AVAILABLE_MODELS: ModelConfig[] = [
     id: 'hive',
     name: 'Claude HIVE',
     description: 'Opus orchestrator with Sonnet worker swarm for complex tasks',
-    apiModelId: 'claude-opus-4-5-20250101',
+    apiModelId: 'claude-opus-4-5-20251101',
     provider: 'anthropic',
   },
   {
