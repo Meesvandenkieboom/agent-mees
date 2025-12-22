@@ -19,10 +19,10 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Github, Loader2, LogOut, Settings } from 'lucide-react';
+import { Menu, Edit3, Search, Trash2, Edit, FolderOpen, Github, Loader2, LogOut, Settings as SettingsIcon } from 'lucide-react';
 import { toast } from '../../utils/toast';
 import { GitHubOAuthSetupModal } from '../setup/GitHubOAuthSetupModal';
-import { AgentSettings } from '../settings/AgentSettings';
+import { Settings } from '../settings/Settings';
 
 interface Chat {
   id: string;
@@ -63,7 +63,7 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
   const [isLoadingGithub, setIsLoadingGithub] = useState(false);
   const [isHoveringGithub, setIsHoveringGithub] = useState(false);
   const [showGitHubSetup, setShowGitHubSetup] = useState(false);
-  const [showAgentSettings, setShowAgentSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Check GitHub status on mount
@@ -314,14 +314,14 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
           </span>
         </button>
 
-        {/* Agent Settings Button */}
+        {/* Settings Button */}
         <button
           className="sidebar-new-chat-btn"
-          onClick={() => setShowAgentSettings(true)}
+          onClick={() => setShowSettings(true)}
           style={{ marginTop: '0.5rem' }}
         >
-          <Settings size={20} opacity={0.8} />
-          <span>Agent Settings</span>
+          <SettingsIcon size={20} opacity={0.8} />
+          <span>Settings</span>
         </button>
 
         {/* Search */}
@@ -531,9 +531,9 @@ export function Sidebar({ isOpen, onToggle, chats = [], onNewChat, onChatSelect,
         />
       )}
 
-      {/* Agent Settings Modal */}
-      {showAgentSettings && (
-        <AgentSettings onClose={() => setShowAgentSettings(false)} />
+      {/* Settings Modal */}
+      {showSettings && (
+        <Settings onClose={() => setShowSettings(false)} />
       )}
     </div>
   );
