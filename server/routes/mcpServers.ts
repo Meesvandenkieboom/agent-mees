@@ -177,6 +177,17 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
           signal: AbortSignal.timeout(5000)
         });
 
+        // 401/403 = server reachable but needs OAuth (this is fine!)
+        if (response.status === 401 || response.status === 403) {
+          return new Response(JSON.stringify({
+            success: true,
+            needsAuth: true,
+            message: 'Server reachable - OAuth login required'
+          }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
         // Accept various success responses (200, 404 for path-based servers, etc.)
         if (response.ok || response.status === 404 || response.status === 405) {
           return new Response(JSON.stringify({ success: true }), {

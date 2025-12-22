@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Power, PowerOff, Loader2, Info, X, Globe, Terminal, ExternalLink, CheckCircle2, XCircle, Plug2 } from 'lucide-react';
+import { Plus, Trash2, Power, PowerOff, Loader2, Info, X, Globe, Terminal, ExternalLink, CheckCircle2, XCircle, Plug2, KeyRound } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface MCPServer {
@@ -18,7 +18,7 @@ interface MCPServer {
   args?: string[];
   enabled: boolean;
   builtin: boolean;
-  status?: 'connected' | 'disconnected' | 'error';
+  status?: 'connected' | 'disconnected' | 'error' | 'needs-auth';
 }
 
 type ServerType = 'http' | 'stdio';
@@ -109,10 +109,18 @@ export function MCPServersTab() {
       });
       const data = await response.json();
       if (data.success) {
-        setServers(servers.map(server =>
-          server.id === id ? { ...server, status: 'connected' } : server
-        ));
-        toast.success('Connection successful', { description: id });
+        if (data.needsAuth) {
+          // Server reachable but needs OAuth
+          setServers(servers.map(server =>
+            server.id === id ? { ...server, status: 'needs-auth' } : server
+          ));
+          toast.success('Server reachable', { description: 'OAuth login will be required when used' });
+        } else {
+          setServers(servers.map(server =>
+            server.id === id ? { ...server, status: 'connected' } : server
+          ));
+          toast.success('Connection successful', { description: id });
+        }
       } else {
         setServers(servers.map(server =>
           server.id === id ? { ...server, status: 'error' } : server
@@ -185,9 +193,11 @@ export function MCPServersTab() {
   const getStatusIcon = (status?: MCPServer['status']) => {
     switch (status) {
       case 'connected':
-        return <CheckCircle2 size={16} className="text-green-400" />;
+        return <CheckCircle2 size={16} className="text-green-400" title="Connected" />;
+      case 'needs-auth':
+        return <KeyRound size={16} className="text-amber-400" title="Needs OAuth login" />;
       case 'error':
-        return <XCircle size={16} className="text-red-400" />;
+        return <XCircle size={16} className="text-red-400" title="Connection error" />;
       default:
         return null;
     }
