@@ -250,8 +250,8 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
           });
         }
 
-        // Accept various success responses (200, 404 for path-based servers, etc.)
-        if (response.ok || response.status === 404 || response.status === 405) {
+        // Accept various success responses (200, 404 for path-based servers, 405/406 for MCP servers)
+        if (response.ok || response.status === 404 || response.status === 405 || response.status === 406) {
           return new Response(JSON.stringify({ success: true }), {
             headers: { 'Content-Type': 'application/json' }
           });
