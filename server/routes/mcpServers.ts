@@ -41,6 +41,7 @@ interface MCPServersConfig {
   custom: Record<string, MCPServerConfig>;
   auth: Record<string, MCPAuthToken>; // Store auth tokens per server
   headerOverrides: Record<string, Record<string, string>>; // Store header overrides (API keys) for built-in servers
+  nameOverrides: Record<string, string>; // Store display name overrides
 }
 
 // Known OAuth providers and their configurations
@@ -80,6 +81,7 @@ async function loadMCPConfig(): Promise<MCPServersConfig> {
     // Ensure fields exist
     if (!config.auth) config.auth = {};
     if (!config.headerOverrides) config.headerOverrides = {};
+    if (!config.nameOverrides) config.nameOverrides = {};
     return config;
   } catch {
     // Initialize with all built-in servers enabled
@@ -87,7 +89,8 @@ async function loadMCPConfig(): Promise<MCPServersConfig> {
       enabled: {},
       custom: {},
       auth: {},
-      headerOverrides: {}
+      headerOverrides: {},
+      nameOverrides: {}
     };
 
     // Enable all built-in servers by default
@@ -133,9 +136,10 @@ function getAllServers(config: MCPServersConfig) {
     const url = serverConfig.type === 'http' ? serverConfig.url : undefined;
     const authProvider = url ? detectAuthProvider(url) : undefined;
     const headerOverride = config.headerOverrides[id];
+    const defaultName = id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' ');
     servers.push({
       id,
-      name: id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' '),
+      name: config.nameOverrides[id] || defaultName,
       type: serverConfig.type,
       url,
       command: serverConfig.type === 'stdio' ? serverConfig.command : undefined,
@@ -550,11 +554,11 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     });
   }
 
-  // PATCH /api/mcp-servers/:id/api-key - Update API key for an MCP server
-  const apiKeyMatch = url.pathname.match(/^\/api\/mcp-servers\/([^/]+)\/api-key$/);
-  if (req.method === 'PATCH' && apiKeyMatch) {
-    const id = apiKeyMatch[1];
-    const body = await req.json() as { apiKey: string; headerName?: string };
+  // PATCH /api/mcp-servers/:id/config - Update config for an MCP server (name, headers)
+  const configMatch = url.pathname.match(/^\/api\/mcp-servers\/([^/]+)\/config$/);
+  if (req.method === 'PATCH' && configMatch) {
+    const id = configMatch[1];
+    const body = await req.json() as { name?: string; headers?: Record<string, string> };
     const config = await loadMCPConfig();
 
     // Validate server exists
@@ -571,25 +575,29 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
       });
     }
 
-    // Only HTTP servers can have API keys
+    // Only HTTP servers can have headers
     if (serverConfig.type !== 'http') {
       return new Response(JSON.stringify({
         success: false,
-        error: 'Only HTTP servers support API keys'
+        error: 'Only HTTP servers support custom headers'
       }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    // Update or remove the API key
-    if (body.apiKey && body.apiKey.trim()) {
-      const headerName = body.headerName || 'CONTEXT7_API_KEY';
-      config.headerOverrides[id] = {
-        [headerName]: body.apiKey.trim()
-      };
+    // Update name override
+    if (!config.nameOverrides) config.nameOverrides = {};
+    if (body.name && body.name.trim()) {
+      config.nameOverrides[id] = body.name.trim();
     } else {
-      // Remove the override if API key is empty
+      delete config.nameOverrides[id];
+    }
+
+    // Update headers override
+    if (body.headers && Object.keys(body.headers).length > 0) {
+      config.headerOverrides[id] = body.headers;
+    } else {
       delete config.headerOverrides[id];
     }
 
@@ -598,7 +606,7 @@ export async function handleMCPServerRoutes(req: Request, url: URL): Promise<Res
     return new Response(JSON.stringify({
       success: true,
       id,
-      hasApiKey: !!body.apiKey?.trim()
+      hasApiKey: config.headerOverrides[id] && Object.keys(config.headerOverrides[id]).length > 0
     }), {
       headers: { 'Content-Type': 'application/json' }
     });

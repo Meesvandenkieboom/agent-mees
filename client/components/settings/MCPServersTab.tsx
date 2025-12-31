@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Power, PowerOff, Loader2, Info, X, Globe, Terminal, ExternalLink, CheckCircle2, XCircle, Plug2, KeyRound, Link, Unlink, Wrench, Key } from 'lucide-react';
+import { Plus, Trash2, Power, PowerOff, Loader2, Info, X, Globe, Terminal, ExternalLink, CheckCircle2, XCircle, Plug2, KeyRound, Link, Unlink, Wrench, Pencil } from 'lucide-react';
 import { toast } from '../../utils/toast';
 
 interface MCPServer {
@@ -54,8 +54,11 @@ export function MCPServersTab() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [editingApiKeyId, setEditingApiKeyId] = useState<string | null>(null);
-  const [apiKeyValue, setApiKeyValue] = useState('');
+  const [editingServerId, setEditingServerId] = useState<string | null>(null);
+  const [editServer, setEditServer] = useState({
+    name: '',
+    headers: ''
+  });
 
   useEffect(() => {
     loadServers();
@@ -235,26 +238,39 @@ export function MCPServersTab() {
     }
   };
 
-  const handleSaveApiKey = async (id: string) => {
+  const handleSaveEdit = async (id: string) => {
     try {
-      const response = await fetch(`/api/mcp-servers/${id}/api-key`, {
+      let headers: Record<string, string> | undefined;
+      if (editServer.headers.trim()) {
+        try {
+          headers = JSON.parse(editServer.headers);
+        } catch {
+          toast.error('Invalid headers JSON format');
+          return;
+        }
+      }
+
+      const response = await fetch(`/api/mcp-servers/${id}/config`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: apiKeyValue }),
+        body: JSON.stringify({
+          name: editServer.name || undefined,
+          headers: headers
+        }),
       });
       const data = await response.json();
 
       if (data.success) {
-        toast.success(data.hasApiKey ? 'API key saved' : 'API key removed', { description: id });
-        setEditingApiKeyId(null);
-        setApiKeyValue('');
+        toast.success('Server updated', { description: id });
+        setEditingServerId(null);
+        setEditServer({ name: '', headers: '' });
         await loadServers();
       } else {
-        toast.error('Failed to save API key', { description: data.error });
+        toast.error('Failed to update server', { description: data.error });
       }
     } catch (error) {
-      console.error('Failed to save API key:', error);
-      toast.error('Failed to save API key');
+      console.error('Failed to update server:', error);
+      toast.error('Failed to update server');
     }
   };
 
@@ -468,21 +484,29 @@ export function MCPServersTab() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {/* API Key button (for HTTP servers) */}
+                  {/* Edit button (for HTTP servers) */}
                   {server.type === 'http' && (
                     <button
                       onClick={() => {
-                        setEditingApiKeyId(editingApiKeyId === server.id ? null : server.id);
-                        setApiKeyValue('');
+                        if (editingServerId === server.id) {
+                          setEditingServerId(null);
+                          setEditServer({ name: '', headers: '' });
+                        } else {
+                          setEditingServerId(server.id);
+                          setEditServer({
+                            name: server.name || '',
+                            headers: ''
+                          });
+                        }
                       }}
                       className={`p-2 rounded-lg transition-colors ${
                         server.hasApiKey
                           ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
                           : 'bg-white/5 text-gray-400 hover:bg-white/10'
                       }`}
-                      title={server.hasApiKey ? 'API key configured - click to edit' : 'Add API key'}
+                      title={server.hasApiKey ? 'Edit (headers configured)' : 'Edit server'}
                     >
-                      <Key size={16} />
+                      <Pencil size={16} />
                     </button>
                   )}
 
@@ -586,51 +610,58 @@ export function MCPServersTab() {
                 </div>
               )}
 
-              {/* API Key inline form */}
-              {editingApiKeyId === server.id && (
-                <div className="ml-11 p-3 bg-white/5 rounded-lg border border-white/10">
-                  <label className="block text-sm text-gray-300 mb-2">
-                    API Key {server.hasApiKey && <span className="text-green-400">(currently set)</span>}
-                  </label>
-                  <div className="flex gap-2">
+              {/* Edit server form */}
+              {editingServerId === server.id && (
+                <div className="ml-11 p-4 bg-white/5 rounded-lg border border-white/10 space-y-3">
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-1">
+                      Display Name
+                    </label>
                     <input
-                      type="password"
-                      value={apiKeyValue}
-                      onChange={(e) => setApiKeyValue(e.target.value)}
-                      placeholder={server.hasApiKey ? '••••••••' : 'Enter API key'}
-                      className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-white/20 font-mono text-sm"
+                      type="text"
+                      value={editServer.name}
+                      onChange={(e) => setEditServer({ ...editServer, name: e.target.value })}
+                      placeholder={server.id}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-white/20"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-300 mb-1">
+                      Headers (JSON) {server.hasApiKey && <span className="text-green-400">(configured)</span>}
+                    </label>
+                    <textarea
+                      value={editServer.headers}
+                      onChange={(e) => setEditServer({ ...editServer, headers: e.target.value })}
+                      placeholder={server.id === 'context7'
+                        ? '{"CONTEXT7_API_KEY": "your-api-key"}'
+                        : '{"Authorization": "Bearer YOUR_TOKEN"}'}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:border-white/20 min-h-[80px] resize-y font-mono text-sm"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      {server.id === 'context7' ? (
+                        <>Get your free API key from <a href="https://context7.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300">context7.com/dashboard</a></>
+                      ) : (
+                        'Leave empty to remove custom headers'
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex gap-2 pt-2">
                     <button
-                      onClick={() => handleSaveApiKey(server.id)}
+                      onClick={() => handleSaveEdit(server.id)}
                       className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors"
                     >
                       Save
                     </button>
-                    {server.hasApiKey && (
-                      <button
-                        onClick={() => {
-                          setApiKeyValue('');
-                          handleSaveApiKey(server.id);
-                        }}
-                        className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm transition-colors"
-                        title="Remove API key"
-                      >
-                        Remove
-                      </button>
-                    )}
                     <button
                       onClick={() => {
-                        setEditingApiKeyId(null);
-                        setApiKeyValue('');
+                        setEditingServerId(null);
+                        setEditServer({ name: '', headers: '' });
                       }}
                       className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm transition-colors"
                     >
                       Cancel
                     </button>
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">
-                    Get your free API key from <a href="https://context7.com/dashboard" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:text-purple-300">context7.com/dashboard</a>
-                  </p>
                 </div>
               )}
             </div>
