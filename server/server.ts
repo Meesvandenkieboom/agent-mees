@@ -58,6 +58,7 @@ import { handleAgentRoutes } from "./routes/agents";
 import { handleMCPServerRoutes } from "./routes/mcpServers";
 import { handleWebSocketMessage } from "./websocket/messageHandlers";
 import { runStartupMigrations } from "./utils/configMigration";
+import { cleanupOrphanedMcpProcesses } from "./mcpCleanup";
 import type { ServerWebSocket, Server as ServerType } from "bun";
 
 // Initialize startup configuration (loads env vars, sets up PostCSS)
@@ -68,6 +69,10 @@ await checkNodeAvailability();
 
 // Run config migrations (updates schemas, preserves user data)
 await runStartupMigrations();
+
+// Clean up any orphaned MCP processes from previous sessions/crashes
+// This prevents port conflicts (e.g., Roblox Studio MCP on port 3002)
+await cleanupOrphanedMcpProcesses();
 
 // Initialize default working directory
 const DEFAULT_WORKING_DIR = getDefaultWorkingDirectory();

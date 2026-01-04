@@ -21,6 +21,7 @@ import { parseApiError, getUserFriendlyMessage } from "../utils/apiErrors";
 import { TimeoutController } from "../utils/timeout";
 import { sessionStreamManager } from "../sessionStreamManager";
 import { expandSlashCommand } from "../slashCommandExpander";
+import { cleanupOrphanedMcpProcesses } from "../mcpCleanup";
 
 interface ChatWebSocketData {
   type: 'hot-reload' | 'chat';
@@ -287,6 +288,10 @@ async function handleChatMessage(
 
   // For NEW streams: Spawn SDK and start background response processing
   try {
+
+    // Phase 0: Clean up any orphaned MCP processes before spawning new SDK
+    // This prevents port conflicts (e.g., Roblox Studio MCP on port 3002)
+    await cleanupOrphanedMcpProcesses();
 
     // Phase 0.1: Get workspace path for actual work (workingDir is session root)
     const sessionId = session.id;
