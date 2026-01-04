@@ -39,17 +39,35 @@ interface McpStdioServerConfig {
 
 type McpServerConfig = McpHttpServerConfig | McpStdioServerConfig;
 
+interface McpServersConfig {
+  enabled: Record<string, boolean>;
+  custom: Record<string, McpServerConfig & { name?: string }>;
+  headerOverrides: Record<string, Record<string, string>>;
+}
+
+/**
+ * Load MCP config from file
+ */
+async function loadMcpConfig(): Promise<McpServersConfig> {
+  try {
+    const data = await fs.readFile(MCP_CONFIG_PATH, 'utf-8');
+    const config = JSON.parse(data);
+    return {
+      enabled: config.enabled || {},
+      custom: config.custom || {},
+      headerOverrides: config.headerOverrides || {},
+    };
+  } catch {
+    return { enabled: {}, custom: {}, headerOverrides: {} };
+  }
+}
+
 /**
  * Load header overrides from config file
  */
 async function loadHeaderOverrides(): Promise<Record<string, Record<string, string>>> {
-  try {
-    const data = await fs.readFile(MCP_CONFIG_PATH, 'utf-8');
-    const config = JSON.parse(data);
-    return config.headerOverrides || {};
-  } catch {
-    return {};
-  }
+  const config = await loadMcpConfig();
+  return config.headerOverrides;
 }
 
 /**
@@ -115,28 +133,48 @@ export const MCP_SERVERS_BY_PROVIDER: Record<ProviderType, Record<string, McpSer
 
 /**
  * Get MCP servers for a specific provider (with header overrides merged)
+ * Includes both built-in servers and user-added custom servers
  *
  * @param provider - The provider type
  * @param _modelId - Optional model ID for model-specific MCP server restrictions
  */
 export async function getMcpServers(provider: ProviderType, _modelId?: string): Promise<Record<string, McpServerConfig>> {
   const baseServers = MCP_SERVERS_BY_PROVIDER[provider] || {};
-  const headerOverrides = await loadHeaderOverrides();
+  const mcpConfig = await loadMcpConfig();
 
-  // Deep clone and merge header overrides
+  // Deep clone and merge header overrides for built-in servers
   const servers: Record<string, McpServerConfig> = {};
+
+  // Add built-in servers (if enabled)
   for (const [id, config] of Object.entries(baseServers)) {
-    if (config.type === 'http' && headerOverrides[id]) {
+    // Skip if explicitly disabled
+    if (mcpConfig.enabled[id] === false) {
+      continue;
+    }
+
+    if (config.type === 'http' && mcpConfig.headerOverrides[id]) {
       servers[id] = {
         ...config,
         headers: {
           ...config.headers,
-          ...headerOverrides[id],
+          ...mcpConfig.headerOverrides[id],
         },
       };
     } else {
       servers[id] = config;
     }
+  }
+
+  // Add custom servers (if enabled)
+  for (const [id, config] of Object.entries(mcpConfig.custom)) {
+    // Skip if explicitly disabled
+    if (mcpConfig.enabled[id] === false) {
+      continue;
+    }
+
+    // Add the custom server (strip the name field as it's not part of McpServerConfig)
+    const { name: _name, ...serverConfig } = config;
+    servers[id] = serverConfig as McpServerConfig;
   }
 
   return servers;
